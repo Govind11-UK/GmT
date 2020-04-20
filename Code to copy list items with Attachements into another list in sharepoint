@@ -1,0 +1,130 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Security;
+using System.Text;
+using System.Threading.Tasks;
+using Microsoft.SharePoint;
+using Microsoft.SharePoint.Client;
+
+namespace MoveList
+{
+    class Movelists
+    {
+
+        public void copyAttachements(ClientContext srcctx, ClientContext dstctx, int sourceid, int destid, string sourcelistname, string destlistname, Web srcweb, ListItem destitem)
+        {
+            try
+            {
+                Web web = srcctx.Web;
+                srcctx.Load(web);
+                srcctx.ExecuteQuery();
+                string src = string.Format("{0}/lists/{1}/Attachments/{2}",
+                                  srcweb.Url, sourcelistname, sourceid);
+               
+                Folder attachmentsFolder = srcweb.GetFolderByServerRelativeUrl(src);
+                srcctx.Load(attachmentsFolder);
+                FileCollection attachments = attachmentsFolder.Files;
+                srcctx.Load(attachments);
+                srcctx.ExecuteQuery();
+                if (attachments.Count > 0)
+                {
+                    foreach (Microsoft.SharePoint.Client.File attachment in attachments)
+                    {
+                        ClientResult<Stream> clientResultStream = attachment.OpenBinaryStream();
+                        srcctx.ExecuteQuery();
+                        var stream = clientResultStream.Value;
+                        AttachmentCreationInformation attachFileInfo = new AttachmentCreationInformation();
+                        Byte[] buffer = new Byte[attachment.Length];
+                        int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                        System.IO.MemoryStream stream2 = new System.IO.MemoryStream(buffer);
+                        attachFileInfo.ContentStream = stream2;
+                        attachFileInfo.FileName = attachment.Name;
+
+                        Web destweb = dstctx.Web;
+                        List destlist = destweb.Lists.GetByTitle(destlistname);
+                        ListItem destitems = destlist.GetItemById(destid);
+                        Attachment a = destitems.AttachmentFiles.Add(attachFileInfo);
+                        destitems.Update();
+                        dstctx.ExecuteQuery();
+                        stream2.Close();
+                    }
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        public void MoveListacrossSite()
+        {
+            // For Source Site
+            ClientContext sourcectx = new ClientContext("http://govind-11:4444/");
+            NetworkCredential sourcenet = new NetworkCredential("administrator", "admin@123");
+            Web sourceweb = sourcectx.Web;
+            var sourcelist = sourceweb.Lists.GetByTitle("EmployeeMaster");
+            sourcectx.Load(sourcelist);
+            sourcectx.ExecuteQuery();
+
+            // For Destination Site
+
+            ClientContext destctx = new ClientContext("https://newpact.sharepoint.com/sites/Demo");
+            string password = "Pa$$w0rd";
+            SecureString secure = new SecureString();
+            foreach (char ch in password.ToCharArray())
+            {
+                secure.AppendChar(ch);
+            }
+            destctx.Credentials = new SharePointOnlineCredentials("Ahsan@newpact.onmicrosoft.com", secure);
+            Web destweb = destctx.Web;
+            List destlist = destweb.Lists.GetByTitle("EmployeeMaster");
+            destctx.Load(destlist);
+            destctx.ExecuteQuery();
+
+            // Copy Items
+            // For all items
+            CamlQuery query = new CamlQuery();
+            query.ViewXml = "<View></View>";
+
+            // For Row limit
+            //CamlQuery query = CamlQuery.CreateAllItemsQuery(50);
+            ListItemCollection items = sourcelist.GetItems(query);
+            sourcectx.Load(items);
+            sourcectx.ExecuteQuery();
+            
+            foreach (ListItem item in items)
+            {
+                ListItemCreationInformation itemcreateinfo = new ListItemCreationInformation();
+                ListItem newdestitem = destlist.AddItem(itemcreateinfo);  
+                newdestitem["Title"] = item["Title"];
+                //newdestitem["DocumentAction"] = item["DocumentAction"];
+                //newdestitem["ID"] = item["ID"];
+                //int destitem =(int) newdestitem["ID"];
+                newdestitem["Author"] = item["Author"];
+                newdestitem["Editor"] = item["Editor"];
+                newdestitem["Modified"] = item["Modified"];
+                newdestitem["Created"] = item["Created"];
+                newdestitem.Update();
+                //destctx.Load(newdestitem);
+                destctx.ExecuteQuery();
+                Console.WriteLine(newdestitem.Id);
+                copyAttachements(sourcectx, destctx, item.Id, newdestitem.Id, sourcelist.Title, destlist.Title, sourceweb, newdestitem);
+                
+            }
+            
+            
+        }
+    }
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            Movelists abc = new Movelists();
+            abc.MoveListacrossSite();
+            Console.WriteLine("Completed....");
+            Console.ReadLine();
+        }
+    }
+}
